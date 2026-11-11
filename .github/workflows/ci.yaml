@@ -1,0 +1,58 @@
+name: R package checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r-check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {os: ubuntu-latest, r: release}
+          - {os: ubuntu-latest, r: oldrel-1}
+          - {os: ubuntu-latest, r: devel}
+          - {os: windows-latest, r: release}
+          - {os: macos-latest, r: release}
+    runs-on: ${{ matrix.config.os }}
+    env:
+      R_KEEP_PKG_SOURCE: "yes"
+      NOT_CRAN: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05
+        with:
+          r-version: ${{ matrix.config.r }}
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-pandoc@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05
+      - uses: r-lib/actions/setup-r-dependencies@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05
+        with:
+          extra-packages: any::rcmdcheck
+          needs: check
+      - name: Verify publication boundary
+        run: Rscript tools/verify-boundary.R
+      - name: Check package with bounded runtime
+        timeout-minutes: 5
+        uses: r-lib/actions/check-r-package@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05
+        with:
+          args: 'c("--no-manual", "--as-cran")'
+          error-on: '"warning"'
+      - name: Build, inspect, install and smoke-test exact source package
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          R CMD build .
+          Rscript tools/verify-boundary.R goedel_*.tar.gz
+          mkdir -p "$RUNNER_TEMP/r-isolated-lib" "$RUNNER_TEMP/r-isolated-cwd"
+          R CMD INSTALL --library="$RUNNER_TEMP/r-isolated-lib" goedel_*.tar.gz
+          cp tools/smoke-installed.R "$RUNNER_TEMP/r-isolated-cwd/smoke-installed.R"
+          cd "$RUNNER_TEMP/r-isolated-cwd"
+          Rscript --vanilla smoke-installed.R "$RUNNER_TEMP/r-isolated-lib"

@@ -1,0 +1,408 @@
+---
+title: "Syntax, bounded proofs and evidential limits"
+author: "RiskDataScience GmbH"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Syntax, bounded proofs and evidential limits}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+library(goedel)
+```
+
+## Syntax is not truth
+
+`goedel` constructs first-order terms and formulas with a versioned wire format.
+Variables, constants and functions are terms. Predicates, equality, logical
+connectives and quantifiers are formulas. Names are ASCII identifiers, at most
+64 bytes; a single expression has at most 1000 nodes and depth 64. Arity is
+checked consistently within each expression and jointly within proofs/search.
+The same function name is permitted to have a different arity in unrelated
+expressions, since no global signature is silently assigned.
+
+```{r}
+x <- variable("x")
+y <- variable("y")
+f <- forall("y", predicate("P", list(x, y)))
+free_variables(f)
+bound_variables(f)
+```
+
+The binder in the next substitution must be renamed. Replacing the free `x`
+with `y` does not allow the existing quantifier to capture it.
+
+```{r}
+g <- substitute_formula(f, "x", y)
+serialize_record(g)
+free_variables(g)
+normalize(g)
+```
+
+Fresh variable names are deterministic: `v0`, `v1`, and so on, excluding names
+already present in the input or replacement. Shadowed bindings are preserved.
+Alpha normalization names bound variables in preorder while skipping free names.
+It is a syntactic transformation, not a decision procedure for logical equivalence.
+
+## Exact codes
+
+The numbering `goedel-json-byte-v1` begins at one and repeatedly applies
+`n = 256*n + b` to each canonical JSON byte. The leading one acts as a sentinel.
+Uniqueness of base-256 expansion gives an injective encoding of the canonical
+byte strings. This finite algorithm is not itself a proof of arithmetical
+representability of a substitution function.
+
+```{r}
+numbering()
+code <- encode(variable("x"))
+code
+serialize_record(decode(code))
+fingerprint(variable("x"))
+```
+
+R uses native decimal-digit arithmetic. No floating-point conversion of a code
+is allowed: keep codes as character strings even when their values are small.
+Encoding is limited to 1024 bytes and decoding to 2500 decimal digits. Decoder
+success checks the sentinel, canonical wire text and valid syntax. Invalid
+inputs produce `goedel_error` with `INVALID_INPUT`; exhausted resource limits
+produce `RESOURCE_LIMIT`.
+
+## Finite proof checking and bounded search
+
+The native calculus is a small natural-deduction fragment, not a complete
+arithmetic proof system. A proof consists of explicit formulas, rule names and
+one-based references to earlier steps. Axioms must be closed; supplied
+assumptions and axioms remain trusted premises.
+
+```{r}
+a <- predicate("A")
+b <- predicate("B")
+assumptions <- list(a, implication(a, b))
+steps <- list(
+  list(rule = "assumption", formula = a, premises = list()),
+  list(rule = "assumption", formula = implication(a, b), premises = list()),
+  list(rule = "mp", formula = b, premises = list(1L, 2L))
+)
+check_proof(steps, assumptions, conclusion = b)
+```
+
+Supported rules are assumption, axiom, modus ponens, conjunction introduction,
+left/right conjunction projection, universal elimination by capture-avoiding
+substitution, and universal introduction with its free-variable side condition.
+The original checker retains this small fragment; `check_scoped_proof()` adds
+explicit discharged subproofs and the fuller rules described below.
+A mutated rule application returns `REFUTED` about the validity of that submitted
+proof, not about the truth of its conclusion. Malformed payloads are errors.
+
+```{r}
+steps[[3]]$formula <- a
+check_proof(steps, assumptions)$details
+found <- bounded_proof_search(b, assumptions)
+found$details
+check_proof(found$witness, assumptions)$status
+bounded_proof_search(b, list(a))$details
+```
+
+Search closes a finite set only under modus ponens and conjunction projection.
+Assumptions are inserted in order; facts are deduplicated modulo alpha-renaming.
+The maximum budget is 256 admitted proof steps, including assumptions. A witness
+is independently checked before success. `UNKNOWN` with `BOUND_EXHAUSTED` or
+`SEARCH_SPACE_EXHAUSTED` says nothing about unbounded provability.
+
+## Literature and conditional applicability
+
+The public catalogue describes precise variants of metamathematical results.
+The original Gödel sentences, Rosser's refinement, the second incompleteness
+theorem, Löb's theorem and Tarski's undefinability theorem are distinct entries.
+They are never interchanged merely because they concern truth or provability.
+Their exact literature formulations, requirements and sources are data.
+
+```{r}
+list_statements()
+rosser <- lookup_statement("rosser")
+rosser$requirements
+rosser$evidence$review_status
+check_applicability("rosser", theory_context("PA"))$status
+```
+
+A name such as PA does not silently certify effectiveness, arithmetical strength
+or consistency. Explicit declarations permit a conditional applicability query:
+
+```{r}
+declarations <- setNames(rep(list(TRUE), length(rosser$requirements)),
+                         unlist(rosser$requirements))
+context <- theory_context("declared theory", declarations)
+answer <- check_applicability("rosser", context)
+answer$status
+answer$limitations
+context$consistency_status
+```
+
+Missing requirements yield `UNKNOWN`; false requirements yield `NOT_APPLICABLE`.
+Detected contradictory declarations yield `INCONSISTENT_CONTEXT`. There is no
+complete consistency decision procedure. `DRAFT` records cannot be activated by
+adding assumptions. Literature review is not a locally replayed formal proof.
+The direct typed graph returned by `relation_graph()` never turns arbitrary paths
+into theorems.
+
+## Reproducibility and scope
+
+Canonical JSON, exact codes, SHA-256 fingerprints, the catalogue and shared
+reference fixtures are aligned with the native Python implementation. Independent
+reference derivations test mathematical behavior; language parity alone does not
+prove correctness. Both packages can be installed and used without the other.
+The legacy byte numbering and proof API remain stable. The larger syntax and
+proof capabilities have explicit limits and independent mathematical tests;
+none carries a proof-assistant certification.
+
+```{r}
+catalogue_manifest()
+```
+
+
+## Q, PA and exact numeral notation
+
+The arithmetic signature has zero, successor, addition, multiplication and
+logical equality. `q_axioms()` returns seven closed Robinson axioms in a stable
+order. `arithmetic_theory("PA")` uses these axioms and the induction schema;
+the Q predecessor axiom is redundant in this PA presentation. Additional closed
+arithmetic axioms remain declared assumptions, not proved extensions.
+
+```{r}
+pa <- arithmetic_theory("PA")
+body <- parse_formula("x + y = y + x")
+instance <- induction_axiom(body, "x")
+format_formula(instance)
+recognize_induction(instance)$parameters
+is_axiom(pa, instance)
+pa$consistency_status
+```
+
+The body uses the fixed arithmetic signature; arbitrary extra predicate symbols
+are rejected. An open induction instance can be recognized, but axiom membership
+requires its universal closure. Membership is an exact syntactic decision,
+separate from testing whether an arbitrary formula is a theorem.
+
+Numerals are canonical decimal strings, never rounded machine numbers. The
+`num` node explicitly abbreviates a binary Horner term. In an arbitrary finite
+structure it denotes exactly that term, rather than an assumed standard natural
+number. Expansion remains subject to the AST resource bounds.
+
+```{r}
+numeral_value(multiply(numeral("123456789"), numeral("987654321")))
+format_formula(expand_numeral(numeral("5")))
+format_formula(parse_formula("@zero = 0")) # Distinct syntax, explicit abbreviation
+```
+
+## Discharged proofs and equality
+
+The larger native calculus uses an explicit stack of local assumptions. Closing
+rules discharge the most recently opened assumption, and no closed line can be
+reused outside its scope. Actual local proof dependencies are reported. Universal
+introduction checks all global and open local assumptions; existential elimination
+also checks the eigenvariable against its existential premise and conclusion.
+
+```{r}
+a <- predicate("A")
+scoped <- list(
+  list(rule="assume", formula=a, premises=list(), scope=list(1L)),
+  list(rule="imp_intro", formula=implication(a,a), premises=list(1L),
+       scope=list(), discharge=list(1L))
+)
+check_scoped_proof(scoped)$dependencies
+```
+
+The checker also has equality reflexivity, symmetry, transitivity and explicit
+capture-avoiding template substitution. Disjunction elimination uses A or B,
+A implies C, and B implies C. The classical contradiction rule is rejected when
+`logic="intuitionistic"`. Checking a submitted derivation certifies only the
+native rule checks relative to the supplied axioms, not consistency or truth of
+those axioms, and is not a formally verified proof.
+
+## Explicit finite semantics
+
+Every function and relation interpretation is a complete table. Relation tables
+include false rows; missing interpretations never default to false, even in an
+unvisited short-circuit branch. A model has at most sixteen elements. Evaluation
+visits formula nodes and interpreted terms with an explicit step budget.
+
+```{r}
+model <- finite_structure(c("a", "b"))
+evaluate_formula(parse_formula("forall x. x = x"), model)$details
+counter <- evaluate_formula(parse_formula("forall x. forall y. x = y"), model)
+counter$witness
+finite_model_check(list(parse_formula("x = x")), model)$details
+```
+
+`finite_model_check()` ranges over all assignments to free variables for exactly
+the supplied list of formulas. Finite satisfaction of a list is neither a model
+of the entire PA schema nor a consistency argument for PA.
+
+## Finite modal models and frames
+
+Modal syntax is separate from first-order syntax. A Kripke model explicitly
+specifies worlds, accessibility edges, and the complete valuation of every atom
+used by the formula. Box and diamond use the usual all-successors and
+some-successor clauses, including empty successor sets.
+
+```{r}
+p <- modal_atom("p")
+model <- kripke_model(c("a", "b"), list(list("a", "b")), list(p=list("b")))
+evaluate_modal(modal_box(p), model, "a")$details
+frame_check(model)
+t_axiom <- modal_implication(modal_box(p), p)
+validate_modal_frame(t_axiom, list("a"), list())$witness
+validate_modal_frame(t_axiom, list("a"), list(list("a", "a")))$status
+```
+
+Frame validation enumerates every valuation of the formula's finite atom set and
+every world. If the complete space exceeds the declared resource bound, it raises
+`RESOURCE_LIMIT` before making a validity claim. Finite modal validity never
+stands for general GL completeness or arithmetic provability.
+
+## Large arithmetic presentations and exact proof transport
+
+Arithmetic DAGs share literal subexpressions while preserving lexical variable
+binding. Their separately bounded profile does not weaken the ordinary syntax
+limits. Each imported ASCII variable name receives an injective numeric index
+from a leading sentinel byte and its ASCII bytes. Compiler-generated indexed
+names are already in the DAG namespace. Expanded node counts use exact GMP
+arithmetic, including when a small shared graph denotes an exponentially large
+formula tree.
+
+```{r}
+dag <- arithmetic_dag(parse_formula("x = x"))
+validate_arithmetic_dag(dag)
+dag_code <- arithmetic_dag_encode(dag)
+identical(arithmetic_dag_decode(dag_code), dag)
+closed <- dag_substitute_numeral(dag, "x376", "12345678901234567890")
+validate_arithmetic_dag(closed)
+```
+
+DAG numbering identifies the entire presentation, including unreachable and
+repeated nodes. It does not quotient by alpha equivalence or equality of expanded
+root formulas. Closed numeral substitution retains every original node and
+appends its transformed copy; this exact code equation is part of the numbering
+contract. General `dag_substitute()` also supports variable-containing terms and
+renames conflicting binders to avoid capture.
+
+The self-delimiting natural sequence code uses no floating-point intermediates.
+The empty sequence is 1 and invalid code is 0. Explicit runtime limits on digits,
+bits, items and nodes are separate from the underlying unbounded mathematical
+coding functions.
+
+```{r}
+sequence_encode(list("0", "0"))
+sequence_decode(sequence_encode(list("0", "1", "12345678901234567890")))
+record <- proof_object(scoped)
+proof_code <- encode_proof(record)
+check_proof_code(proof_code)$status
+```
+
+A proof transport object binds its calculus, theory descriptor and theory hash.
+Decoding validates identity and shape; replay checks inference rules. An invalid
+but well-formed derivation can still be encoded. This JSON-byte transport is
+explicitly distinct from an arithmetical Proof_T predicate; transporting a proof
+object alone does not establish representability or derivability conditions.
+
+## Concrete conditional fixed points
+
+`fixed_point()` uses a concrete arithmetic formula compiled from the documented
+closed-substitution register program. Every instruction is expanded into arithmetic
+with beta-coded traces; no oracle atom called Sub is inserted. The returned
+sentence G and exact codes satisfy the specified substitution-code equation.
+The full graph is large, so this construction is intentionally not run while
+building this introductory vignette.
+
+```{r, eval=FALSE}
+phi <- arithmetic_dag(parse_formula("x = 0"))
+fixed <- fixed_point(phi)
+fixed$details
+fixed$witness$checked_proof$status
+fixed$assumptions[[1]]$proved_by_native_checker # FALSE
+```
+
+The twenty-step first-order derivation verifies G if and only if phi(code(G))
+relative to its displayed representation instance. The instance is supported by
+an independent mathematical review bound to exact program, compiler and formula
+hashes. It is an explicit trusted premise of the native checker. The result does
+not assert G's truth, unprovability or consistency, and no formal proof assistant
+kernel was replayed. An unrecognized bundle or altered review cannot obtain the
+built-in reviewed status merely by setting a verification flag.
+
+## Typed conditional catalogue inference
+
+The inference engine follows reviewed typed rules with explicit theory and
+metatheory identities. Here the declared omega-consistency of a PA extension
+supports Sigma-1 soundness and consistency, which supplies one of Rosser's
+requirements. The declarations themselves remain unverified.
+
+```{r}
+ctx <- inference_context("declared PA extension", list(
+  classical_first_order=TRUE, extends_pa=TRUE, omega_consistent=TRUE,
+  decidable_axiom_set=TRUE, standard_arithmetization=TRUE
+))
+result <- infer("syntactically_complete", FALSE, ctx)
+result$status
+check_derivation(result$witness)$status
+vapply(explain_derivation(result$witness), function(step) step$explanation, "")
+```
+
+Witnesses bind the exact catalogue and rule hashes. Independent replay rejects
+changed assumptions, polarity, rule references, theory level or predicate identity.
+Graph edges remain typed: a prerequisite or proof dependency is not automatically
+an implication. The optional `catalogue_graph("igraph")` adapter retains the
+full records as canonical JSON; its mathematical content matches the plain-record
+adapter and the Python graph adapter.
+
+## The exact PA proof predicate and metatheorems
+
+The package includes the complete finite Hilbert PA checker as an explicit
+register program. Its arithmetic graph represents that same program. The
+proof predicate fixes the graph output to one; existential quantification over
+the proof code gives `provability_formula()`. The predicate identity binds the
+program, arithmetic graph, numbering, calculus and literal contradiction code.
+`consistency_formula()` constructs the negation of this particular predicate at
+that contradiction code; it does not establish the resulting formula.
+
+```{r, eval=FALSE}
+axiom_code <- arithmetic_dag_encode(hilbert_q_axiom(4L))
+proof_code <- pa_proof_encode(list(list(
+  rule=14L, formula=axiom_code, aux_a="0", aux_b="0"
+)))
+check_pa_proof(proof_code, axiom_code)$status # ESTABLISHED
+provability_identity()
+check_metatheorem("godel_second_hbl", list(consistent=TRUE))$status
+check_metatheorem("lob", list())$details$hbl_conditions
+sentence <- godel_sentence()
+sentence$details
+```
+
+These complete constructions and checks can take substantial time and memory.
+Internal node and context counts do not bound memory in bytes or wall time.
+Use a separate worker with operating-system memory and execution-time limits,
+run substantial cases sequentially, and begin with a small formula. A terminated
+worker provides no mathematical verdict; a full PA Goedel sentence may exceed
+the available local budget.
+Their native implementations are exercised separately from the introductory
+vignette build. A rejected finite PA proof is distinct from exhaustion of its
+execution budget. The actual Goedel sentence is the fixed point of the explicit
+formula not Pr_PA(x), and retains the same displayed representation premise as
+`fixed_point()`.
+
+The D1, D2 and D3 schemes have an independent mathematical review for this exact
+predicate. They are not a proof-assistant certificate or a replayed serialized
+PA proof of the schemes. `check_metatheorem()` checks each named variant's
+requirements separately. A consistency declaration remains an assumption;
+missing requirements yield UNKNOWN, false mathematical requirements yield
+NOT_APPLICABLE, and inconsistent declarations yield INCONSISTENT_CONTEXT.
+Different predicate identities or missing derivability-condition reviews cannot
+be repaired by setting user flags to TRUE.
+
+Public representation specifications, source programs and compilers are installed
+under `system.file("reproduction", package="goedel")`. They support independent
+reconstruction and review of the arithmetic resources. Normal R evaluation and
+proof checking use the native implementations and do not invoke Python or these
+reference sources.

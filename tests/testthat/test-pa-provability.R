@@ -1,0 +1,30 @@
+test_that("PA Hilbert transport remains separate from logical acceptance", {
+  for(i in 1:7) {
+    ax<-hilbert_q_axiom(i)
+    expect_identical(validate_arithmetic_dag(ax)$free_variables,list())
+    expect_false(any(vapply(ax$nodes,function(n)n$op %in% c("num","and","or","exists","bottom"),logical(1))))
+  }
+  code<-arithmetic_dag_encode(hilbert_q_axiom(4L))
+  expect_identical(code,"7303094192337005764632264550179605053439")
+  steps<-list(list(rule=14L,formula=code,aux_a="0",aux_b="0"))
+  expect_identical(pa_proof_decode(pa_proof_encode(steps)),steps)
+  invalid<-steps;invalid[[1L]]$rule<-999L
+  expect_identical(pa_proof_decode(pa_proof_encode(invalid)),invalid)
+  expect_error(pa_proof_encode(list()),class="goedel_error")
+  expect_error(pa_proof_decode(sequence_encode(list("20261106","1","1","6","0","0","0","1","0"))),class="goedel_error")
+})
+test_that("native PA verifier and concrete Pr identity use one exact program", {
+  conclusion<-arithmetic_dag_encode(hilbert_q_axiom(4L))
+  proof<-pa_proof_encode(list(list(rule=14L,formula=conclusion,aux_a="0",aux_b="0")))
+  checked<-check_pa_proof(proof,conclusion)
+  expect_identical(checked$status,"ESTABLISHED")
+  expect_identical(checked$details$steps_used,77003L)
+  expect_identical(checked$details$output,"1")
+  expect_identical(checked$context$predicate_sha256,"58fcc5492a6ef053c6176075570f1486859c7cdb6cc765812d01f72bdb3ce2ad")
+  expect_identical(checked$context$contradiction_code,"2156323289736949647085695664127")
+  expect_identical(check_pa_proof("0",conclusion)$status,"REFUTED")
+  expect_identical(check_pa_proof(proof,conclusion,max_steps=1L)$status,"UNKNOWN")
+  expect_identical(validate_arithmetic_dag(provability_formula())$free_variables,list("x1"))
+  expect_identical(validate_arithmetic_dag(consistency_formula())$free_variables,list())
+  expect_error(proof_PA_formula("x0","x0"),class="goedel_error")
+})

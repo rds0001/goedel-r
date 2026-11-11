@@ -1,0 +1,24 @@
+Package: goedel
+Type: Package
+Title: Arithmetic Syntax, Metamathematics and Explicit Proof Checking
+Version: 0.2.0
+Authors@R: c(person("RiskDataScience GmbH", role = c("aut", "cph")),
+    person("Dimitrios", "Geromichalos", email = "riskdatascience@web.de",
+           role = "cre", comment = "Dr."))
+Description: Constructs and transforms first-order syntax, encodes syntax with
+    exact natural-number codes, and checks explicit finite derivations in a
+    documented calculus. Bounded search and literature-based metamathematical
+    queries report their assumptions and evidential limits. Includes Q and PA
+    presentations, finite and modal semantics, shared arithmetic formula graphs,
+    exact register computations and concrete conditional fixed-point constructions.
+    It does not decide
+    general truth, consistency, or unprovability, and does not claim formal
+    verification of literature results.
+License: Apache License (== 2.0)
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+Imports: jsonlite, digest, gmp, stats, utils
+Suggests: testthat (>= 3.0.0), knitr, rmarkdown, igraph
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+RoxygenNote: 7.3.1

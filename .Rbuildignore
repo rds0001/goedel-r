@@ -1,0 +1,15 @@
+^scaffold$
+^Unterlagen$
+^intern$
+^archiv$
+^\.git$
+^\.github$
+^\.Rproj\.user$
+^.*\.Rproj$
+^data-raw$
+^tools$
+^cran-results$
+^cran-comments\.md$
+^.*\.tar\.gz$
+^goedel-scaffold$
+^transformation$
