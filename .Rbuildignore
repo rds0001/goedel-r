@@ -13,3 +13,4 @@
 ^.*\.tar\.gz$
 ^goedel-scaffold$
 ^transformation$
+^\.gitattributes$
